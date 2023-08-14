@@ -146,39 +146,55 @@ file uploads are streaming by default
 ### auto update token
 ```python
 
+import time
+import httpx
+from httpx._models import Request, Response
+
+
 class MyCustomAuth(httpx.Auth):
     requires_response_body = True
 
-    def __init__(self, access_token, refresh_token, refresh_url):
-        self.access_token = access_token
-        self.refresh_token = refresh_token
-        self.refresh_url = refresh_url
+    def __init__(self) -> None:
+        self.token = ""
 
-    def auth_flow(self, request):
-        request.headers["X-Authentication"] = self.access_token
-        response = yield request
+    def auth_flow(self, request: Request):
+        request.headers["sepusrtoken"] = self.token
+        response: Response = yield request
 
-        # token 过期了
-        if response.status_code == 401:
-            # 重新获取token
-            refresh_response = yield self.build_refresh_request()
-            self.update_tokens(refresh_response)
+        if response.status_code == 200:
+            resp_data = response.json()
+            if resp_data.get("code") < 0 and "没有权限" in resp_data.get("message"):
+                print(f"token expires, old token is {self.token}")
+                refresh_response = yield self.build_refresh_request()
+                self.update_tokens(refresh_response)
+                print(f'update token success, new token is: {self.token}')
+                request.headers["sepusrtoken"] = self.token
+                yield request
 
-            # 重新发起请求
-            request.headers["X-Authentication"] = self.access_token
-            yield request
-
-    # 重新获取token的请求，一般是 login api
     def build_refresh_request(self):
-        # Return an `httpx.Request` for refreshing tokens.
-        ...
+        auth_info = {
+            "username": "1q94",
+            "password": "xxxx"
+        }
+        return httpx.Request(method='post', url='http://xxx/login', json=auth_info)
 
-    # 从登陆接口中获取token，并重新赋值到 self.access_token 中
-    def update_tokens(self, response):
-        # Update the `.access_token` and `.refresh_token` tokens
-        # based on a refresh response.
-        data = response.json()
-        ...
+    def update_tokens(self, response: Response):
+        print("update tokens")
+        response_data: dict = response.json()
+        if response_data.get("code", -1) < 0:
+            raise Exception(
+                f'refresh token failed: {response_data.get("message")}')
+        token = response_data.get("data")
+        self.token = token
+
+
+if __name__ == "__main__":
+    client = httpx.Client(auth=MyCustomAuth(), timeout=None)
+    while True:
+        resp = client.get(
+            "http://xxx/members/")
+        print(resp.json())
+        time.sleep(4)
 ```
 
 ### python 的锁
